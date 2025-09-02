@@ -12,7 +12,7 @@
       background: #111;
       color: #fff;
       font-family: sans-serif;
-      overflow: hidden;
+      overflow: auto;
     }
     #container {
       display: flex;
@@ -29,11 +29,13 @@
       box-shadow: 0 0 20px #000a;
       background: #222;
     }
-    #controls {
-      margin-top: 2em;
-      display: flex;
-      gap: 1em;
-    }
+#controls {
+  margin-top: 2em;
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  align-items: stretch;
+}
     button {
       padding: 1em 2em;
       font-size: 1.2em;
@@ -63,66 +65,167 @@
 <body>
   <div id="container">
     <video id="video" autoplay playsinline></video>
+    <div id="resolution" style="margin: 0.5em 0; font-size: 1em; color: #aaa;"></div>
     <canvas id="canvas" style="display:none;"></canvas>
     <img id="photo" style="display:none;" alt="Foto tomada" />
-    <div style="margin-bottom:1em;width:100%;text-align:center;">
-      <label for="serverUrl" style="font-size:1.1em;">Servidor destino:</label>
-      <input id="serverUrl" type="text" value="/" style="width:70%;font-size:1em;padding:0.5em;border-radius:6px;border:1px solid #888;" placeholder="http://192.168.1.100:8080/" />
-    </div>
 
     <div id="controls">
       <button id="take">Tomar foto</button>
       <button id="send" style="display:none;" disabled>Enviar</button>
+      <button id="switch">Cambiar cámara</button>
+      <input id="zoom" type="range" min="1" max="1" step="0.1" value="1" style="display:none;">
+      <button id="rotate" style="display:none;">Rotar foto</button>
     </div>
     <div id="status"></div>
   </div>
-<script>
+  <details style="margin-top:2em; color:#ccc; font-size:0.95em;">
+    <summary>Detalles técnicos / errores</summary>
+    <pre id="errorlog" style="white-space:pre-wrap; word-break:break-all;"></pre>
+  </details>
+  <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const photo = document.getElementById('photo');
 const takeBtn = document.getElementById('take');
 const sendBtn = document.getElementById('send');
 const status = document.getElementById('status');
-const serverUrlInput = document.getElementById('serverUrl');
+
 let stream = null;
 let imageBlob = null;
+let facingMode = 'user'; // 'user' = selfie, 'environment' = trasera
+let zoomSlider = null;
+let videoTrack = null;
+let rotation = 0; // grados de rotación de la foto
+const rotateBtn = document.getElementById('rotate');
+let capturedImage = null; // Imagen capturada para rotar
 
 // Acceder a la cámara
 async function startCamera() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } } });
     video.srcObject = stream;
     video.style.display = 'block';
     photo.style.display = 'none';
+    // Mostrar resolución actual
+    setTimeout(() => {
+      const resDiv = document.getElementById('resolution');
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw && vh) {
+        resDiv.textContent = `Resolución: ${vw}×${vh}`;
+      } else {
+        resDiv.textContent = '';
+      }
+    }, 500);
+
+    // Zoom
+    zoomSlider = document.getElementById('zoom');
+    videoTrack = stream.getVideoTracks()[0];
+    const capabilities = videoTrack.getCapabilities();
+    rotateBtn.style.display = 'none'; // Ocultar rotar al iniciar cámara
+    if (capabilities.zoom) {
+      zoomSlider.min = capabilities.zoom.min;
+      zoomSlider.max = capabilities.zoom.max;
+      zoomSlider.step = capabilities.zoom.step || 0.1;
+      zoomSlider.value = videoTrack.getSettings().zoom || capabilities.zoom.min;
+      zoomSlider.style.display = 'block';
+      zoomSlider.oninput = async () => {
+        try {
+          await videoTrack.applyConstraints({ advanced: [{ zoom: parseFloat(zoomSlider.value) }] });
+        } catch (e) {
+          status.textContent = 'No se pudo aplicar el zoom: ' + e;
+          status.style.color = 'red';
+          document.getElementById('errorlog').textContent += '\n[ZOOM] ' + (e && e.stack ? e.stack : e);
+        }
+      };
+    } else {
+      zoomSlider.style.display = 'none';
+    }
   } catch (err) {
     status.textContent = 'No se pudo acceder a la cámara: ' + err;
     status.style.color = 'red';
+    document.getElementById('errorlog').textContent += '\n[CAMBIO CAMARA] ' + (err && err.stack ? err.stack : err);
+    document.getElementById('errorlog').textContent += '\n[CAMARA] ' + (err && err.stack ? err.stack : err);
   }
 }
 
 // Tomar foto o cancelar
 let mode = 'take';
+function drawRotatedPhoto(img, rot) {
+  // img: objeto Image
+  // rot en grados: 0, 90, 180, 270
+  const w = img.width;
+  const h = img.height;
+  const ctx = canvas.getContext('2d');
+  if (rot % 180 === 0) {
+    canvas.width = w;
+    canvas.height = h;
+  } else {
+    canvas.width = h;
+    canvas.height = w;
+  }
+  ctx.save();
+  if (rot === 90) {
+    ctx.translate(canvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+  } else if (rot === 180) {
+    ctx.translate(canvas.width, canvas.height);
+    ctx.rotate(Math.PI);
+  } else if (rot === 270) {
+    ctx.translate(0, canvas.height);
+    ctx.rotate(3 * Math.PI / 2);
+  }
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.restore();
+}
+
 takeBtn.onclick = () => {
   if (mode === 'take') {
     const w = video.videoWidth;
     const h = video.videoHeight;
+    rotation = 0;
+    // Capturar imagen del video
     canvas.width = w;
     canvas.height = h;
     canvas.getContext('2d').drawImage(video, 0, 0, w, h);
-    canvas.toBlob(blob => {
-      imageBlob = blob;
-      photo.src = URL.createObjectURL(blob);
-      photo.style.display = 'block';
-      video.style.display = 'none';
-      sendBtn.disabled = false;
-      sendBtn.style.display = 'inline-block';
-      takeBtn.textContent = 'Cancelar';
-      takeBtn.classList.add('cancel');
-      mode = 'cancel';
-      status.textContent = 'Foto lista para enviar';
-      status.style.color = '#fff';
-    }, 'image/jpeg', 0.95);
-  } else if (mode === 'cancel') {
+    // Guardar imagen capturada
+    capturedImage = new Image();
+    capturedImage.width = w;
+    capturedImage.height = h;
+    capturedImage.src = canvas.toDataURL('image/jpeg', 0.95);
+    capturedImage.onload = () => {
+      drawRotatedPhoto(capturedImage, rotation);
+      canvas.toBlob(blob => {
+        imageBlob = blob;
+        photo.src = URL.createObjectURL(blob);
+        photo.style.display = 'block';
+        video.style.display = 'none';
+        sendBtn.disabled = false;
+        sendBtn.style.display = 'inline-block';
+        takeBtn.textContent = 'Cancelar';
+        takeBtn.classList.add('cancel');
+        mode = 'cancel';
+        status.textContent = 'Foto lista para enviar';
+        status.style.color = '#fff';
+        rotateBtn.style.display = 'inline-block';
+        document.getElementById('zoom').style.display = 'none';
+      }, 'image/jpeg', 0.95);
+    };
+
+
+rotateBtn.onclick = () => {
+  if (mode !== 'cancel' || !capturedImage) return;
+  rotation = (rotation + 90) % 360;
+  drawRotatedPhoto(capturedImage, rotation);
+  canvas.toBlob(blob => {
+    imageBlob = blob;
+    photo.src = URL.createObjectURL(blob);
+  }, 'image/jpeg', 0.95);
+};
+    } else if (mode === 'cancel') {
     // Cancelar y volver a la cámara
     imageBlob = null;
     photo.style.display = 'none';
@@ -134,8 +237,16 @@ takeBtn.onclick = () => {
     mode = 'take';
     status.textContent = 'Puedes tomar otra foto';
     status.style.color = '#fff';
+    rotateBtn.style.display = 'none';
+    // Mostrar el slider solo si la cámara lo soporta
+    if (videoTrack && videoTrack.getCapabilities().zoom) {
+      zoomSlider.style.display = 'block';
+    } else {
+      zoomSlider.style.display = 'none';
+    }
   }
 };
+
 
 // Enviar foto al servidor
 sendBtn.onclick = async () => {
@@ -147,9 +258,7 @@ sendBtn.onclick = async () => {
   const formData = new FormData();
   formData.append('foto', imageBlob, 'foto.jpg');
   try {
-    let url = serverUrlInput.value.trim();
-    if (!url) url = '/';
-    if (!url.endsWith('/')) url += '/';
+    let url = window.location.origin + '/';
     const res = await fetch(url, {
       method: 'POST',
       body: formData
@@ -175,24 +284,36 @@ sendBtn.onclick = async () => {
       status.style.color = 'red';
       sendBtn.textContent = 'Enviar';
       sendBtn.disabled = false;
+      document.getElementById('errorlog').textContent += '\n[ENVIO] Error al enviar la foto';
     }
   } catch (err) {
     status.textContent = 'Error de red: ' + err;
     status.style.color = 'red';
     sendBtn.textContent = 'Enviar';
     sendBtn.disabled = false;
+    document.getElementById('errorlog').textContent += '\n[RED] ' + (err && err.stack ? err.stack : err);
   }
 };
 
-// --- Leer parámetro server de la URL y autocompletar ---
-function getQueryParam(name) {
-  const url = new URL(window.location.href);
-  return url.searchParams.get(name);
-}
-const serverParam = getQueryParam('server');
-if (serverParam) {
-  serverUrlInput.value = serverParam;
-}
+const switchBtn = document.getElementById('switch');
+switchBtn.onclick = () => {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  // Limpiar UI y estado
+  if (photo) photo.style.display = 'none';
+  if (canvas) canvas.style.display = 'none';
+  sendBtn.disabled = true;
+  sendBtn.style.display = 'none';
+  takeBtn.textContent = 'Tomar foto';
+  takeBtn.classList.remove('cancel');
+  takeBtn.disabled = false;
+  mode = 'take';
+  status.textContent = 'Puedes tomar otra foto';
+  status.style.color = '#fff';
+    rotateBtn.style.display = 'none';
+    capturedImage = null;
+    imageBlob = null;
+    startCamera();
+};
 
 startCamera();
 </script>
