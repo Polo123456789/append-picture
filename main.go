@@ -1,5 +1,7 @@
 package main
 
+import "flag"
+
 import (
 	"context"
 	_ "embed"
@@ -19,6 +21,9 @@ import (
 var indexHTML string
 
 func main() {
+	ngrokFlag := flag.Bool("ngrok", false, "Exponer el servidor usando ngrok")
+	flag.Parse()
+
 	err := os.MkdirAll("pictures", os.ModePerm)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "No se pudo crear el directorio pictures: %v\n", err)
@@ -64,21 +69,25 @@ func main() {
 		fmt.Fprintf(os.Stdout, "![](%s)", filename)
 	})
 
-	// Inicia el listener de ngrok
-	listener, err := ngrok.Listen(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error iniciando ngrok: %v\n", err)
-		return
-	}
-	ngrokUrl := listener.URL()
-	qr, err := qrcode.New(ngrokUrl.String(), qrcode.Medium)
-	if err == nil {
-		ascii := qr.ToString(false)
-		fmt.Fprintf(os.Stderr, "Escanea este QR para abrir la web y enviar fotos:\n%s\nURL: %s\n", ascii, ngrokUrl)
+	if *ngrokFlag {
+		listener, err := ngrok.Listen(context.Background())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error iniciando ngrok: %v\n", err)
+			return
+		}
+		ngrokUrl := listener.URL()
+		qr, err := qrcode.New(ngrokUrl.String(), qrcode.Medium)
+		if err == nil {
+			ascii := qr.ToString(false)
+			fmt.Fprintf(os.Stderr, "Escanea este QR para abrir la web y enviar fotos:\n%s\nURL: %s\n", ascii, ngrokUrl)
+		} else {
+			fmt.Fprintf(os.Stderr, "No se pudo generar el QR: %v\n", err)
+		}
+		fmt.Fprintf(os.Stderr, "Servidor escuchando en %s ...\n", ngrokUrl)
+		http.Serve(listener, nil)
 	} else {
-		fmt.Fprintf(os.Stderr, "No se pudo generar el QR: %v\n", err)
+		addr := ":8080"
+		fmt.Fprintf(os.Stderr, "Servidor local escuchando en http://localhost%s ...\n", addr)
+		http.ListenAndServe(addr, nil)
 	}
-
-	fmt.Fprintf(os.Stderr, "Servidor escuchando en %s ...\n", ngrokUrl)
-	http.Serve(listener, nil)
 }
