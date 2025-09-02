@@ -68,15 +68,16 @@ func main() {
 	})
 
 	ip := getLocalIP()
-	url := fmt.Sprintf("http://%s:8080/", ip)
-	qr, err := qrcode.New(url, qrcode.Medium)
+	localUrl := fmt.Sprintf("http://%s:8080/", ip)
+	qrUrl := fmt.Sprintf("https://polo123456789.github.io/append-picture/?server=%s", localUrl)
+	qr, err := qrcode.New(qrUrl, qrcode.Medium)
 	if err == nil {
 		ascii := qr.ToString(false)
-		fmt.Fprintf(os.Stderr, "Escanea este QR para acceder al servidor:\n%s\nURL: %s\n", ascii, url)
+		fmt.Fprintf(os.Stderr, "Escanea este QR para abrir la web y enviar fotos:\n%s\nURL: %s\n", ascii, qrUrl)
 	} else {
 		fmt.Fprintf(os.Stderr, "No se pudo generar el QR: %v\n", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Servidor escuchando en %s ...\n", url)
+	fmt.Fprintf(os.Stderr, "Servidor escuchando en %s ...\n", localUrl)
 	http.ListenAndServe(":8080", nil)
 }

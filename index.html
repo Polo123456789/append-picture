@@ -59,7 +59,6 @@
       min-height: 2em;
     }
   </style>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
 </head>
 <body>
   <div id="container">
@@ -68,16 +67,9 @@
     <img id="photo" style="display:none;" alt="Foto tomada" />
     <div style="margin-bottom:1em;width:100%;text-align:center;">
       <label for="serverUrl" style="font-size:1.1em;">Servidor destino:</label>
-      <input id="serverUrl" type="text" value="/" style="width:55%;font-size:1em;padding:0.5em;border-radius:6px;border:1px solid #888;" placeholder="http://192.168.1.100:8080/" />
-      <button id="scanQR" style="padding:0.5em 1em;font-size:1em;margin-left:0.5em;">Escanear QR</button>
+      <input id="serverUrl" type="text" value="/" style="width:70%;font-size:1em;padding:0.5em;border-radius:6px;border:1px solid #888;" placeholder="http://192.168.1.100:8080/" />
     </div>
-    <div id="qrModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000c;z-index:1000;align-items:center;justify-content:center;flex-direction:column;">
-      <div style="background:#222;padding:2em;border-radius:16px;box-shadow:0 0 30px #000a;display:flex;flex-direction:column;align-items:center;">
-        <div id="qr-reader" style="width:320px;height:320px;"></div>
-        <button id="closeQR" style="margin-top:1em;background:#d32f2f;">Cerrar</button>
-        <div id="qrStatus" style="margin-top:1em;color:#fff;"></div>
-      </div>
-    </div>
+
     <div id="controls">
       <button id="take">Tomar foto</button>
       <button id="send" style="display:none;" disabled>Enviar</button>
@@ -192,43 +184,15 @@ sendBtn.onclick = async () => {
   }
 };
 
-// --- QR SCANNER LOGIC ---
-const scanQRBtn = document.getElementById('scanQR');
-const qrModal = document.getElementById('qrModal');
-const closeQRBtn = document.getElementById('closeQR');
-const qrStatus = document.getElementById('qrStatus');
-let qrScanner = null;
-
-scanQRBtn.onclick = () => {
-  qrModal.style.display = 'flex';
-  qrStatus.textContent = 'Apunta la cámara al QR del servidor';
-  qrScanner = new Html5Qrcode("qr-reader");
-  qrScanner.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: 250 },
-    qrCodeMessage => {
-      serverUrlInput.value = qrCodeMessage;
-      qrStatus.textContent = '¡Servidor detectado!';
-      setTimeout(() => {
-        qrScanner.stop().then(() => {
-          qrModal.style.display = 'none';
-        });
-      }, 800);
-    },
-    errorMsg => {
-      // Solo mostrar errores graves
-      if (errorMsg && errorMsg.length > 20) qrStatus.textContent = errorMsg;
-    }
-  ).catch(err => {
-    qrStatus.textContent = 'Error al iniciar escáner: ' + err;
-  });
-};
-
-closeQRBtn.onclick = () => {
-  if (qrScanner) qrScanner.stop().then(() => {
-    qrModal.style.display = 'none';
-  });
-};
+// --- Leer parámetro server de la URL y autocompletar ---
+function getQueryParam(name) {
+  const url = new URL(window.location.href);
+  return url.searchParams.get(name);
+}
+const serverParam = getQueryParam('server');
+if (serverParam) {
+  serverUrlInput.value = serverParam;
+}
 
 startCamera();
 </script>
