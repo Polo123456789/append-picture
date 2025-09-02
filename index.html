@@ -218,7 +218,7 @@ takeBtn.onclick = () => {
 
 rotateBtn.onclick = () => {
   if (mode !== 'cancel' || !capturedImage) return;
-  rotation = (rotation + 90) % 360;
+   rotation = (rotation + 270) % 360;
   drawRotatedPhoto(capturedImage, rotation);
   canvas.toBlob(blob => {
     imageBlob = blob;
@@ -277,9 +277,15 @@ sendBtn.onclick = async () => {
       mode = 'take';
       takeBtn.disabled = false;
       sendBtn.disabled = true;
-      status.textContent = 'Puedes tomar otra foto';
-      status.style.color = '#fff';
-    } else {
+       status.textContent = 'Puedes tomar otra foto';
+       status.style.color = '#fff';
+       // Mostrar el slider solo si la cámara lo soporta
+       if (videoTrack && videoTrack.getCapabilities().zoom) {
+         zoomSlider.style.display = 'block';
+       } else {
+         zoomSlider.style.display = 'none';
+       }
+     } else {
       status.textContent = 'Error al enviar la foto';
       status.style.color = 'red';
       sendBtn.textContent = 'Enviar';
