@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Tomar foto</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    video, canvas, img {
+      max-width: 90vw;
+      max-height: 60vh;
+      border-radius: 12px;
+      box-shadow: 0 0 20px #000a;
+      background: #222;
+    }
+    #controls {
+      margin-top: 2em;
+      display: flex;
+      gap: 1em;
+    }
+    button {
+      padding: 1em 2em;
+      font-size: 1.2em;
+      border-radius: 8px;
+      border: none;
+      background: #0a84ff;
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:active {
+      background: #005bb5;
+    }
+    #take.cancel {
+      background: #d32f2f;
+    }
+    #take.cancel:active {
+      background: #b71c1c;
+    }
+    #status {
+      margin-top: 1em;
+      font-size: 1.1em;
+      min-height: 2em;
+    }
+  </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <div id="container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <img id="photo" style="display:none;" alt="Foto tomada" />
+    <div style="margin-bottom:1em;width:100%;text-align:center;">
+      <label for="serverUrl" style="font-size:1.1em;">Servidor destino:</label>
+      <input id="serverUrl" type="text" value="/" style="width:55%;font-size:1em;padding:0.5em;border-radius:6px;border:1px solid #888;" placeholder="http://192.168.1.100:8080/" />
+      <button id="scanQR" style="padding:0.5em 1em;font-size:1em;margin-left:0.5em;">Escanear QR</button>
+    </div>
+    <div id="qrModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000c;z-index:1000;align-items:center;justify-content:center;flex-direction:column;">
+      <div style="background:#222;padding:2em;border-radius:16px;box-shadow:0 0 30px #000a;display:flex;flex-direction:column;align-items:center;">
+        <div id="qr-reader" style="width:320px;height:320px;"></div>
+        <button id="closeQR" style="margin-top:1em;background:#d32f2f;">Cerrar</button>
+        <div id="qrStatus" style="margin-top:1em;color:#fff;"></div>
+      </div>
+    </div>
+    <div id="controls">
+      <button id="take">Tomar foto</button>
+      <button id="send" style="display:none;" disabled>Enviar</button>
+    </div>
+    <div id="status"></div>
+  </div>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const photo = document.getElementById('photo');
+const takeBtn = document.getElementById('take');
+const sendBtn = document.getElementById('send');
+const status = document.getElementById('status');
+const serverUrlInput = document.getElementById('serverUrl');
+let stream = null;
+let imageBlob = null;
+
+// Acceder a la cámara
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    photo.style.display = 'none';
+  } catch (err) {
+    status.textContent = 'No se pudo acceder a la cámara: ' + err;
+    status.style.color = 'red';
+  }
+}
+
+// Tomar foto o cancelar
+let mode = 'take';
+takeBtn.onclick = () => {
+  if (mode === 'take') {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+    canvas.toBlob(blob => {
+      imageBlob = blob;
+      photo.src = URL.createObjectURL(blob);
+      photo.style.display = 'block';
+      video.style.display = 'none';
+      sendBtn.disabled = false;
+      sendBtn.style.display = 'inline-block';
+      takeBtn.textContent = 'Cancelar';
+      takeBtn.classList.add('cancel');
+      mode = 'cancel';
+      status.textContent = 'Foto lista para enviar';
+      status.style.color = '#fff';
+    }, 'image/jpeg', 0.95);
+  } else if (mode === 'cancel') {
+    // Cancelar y volver a la cámara
+    imageBlob = null;
+    photo.style.display = 'none';
+    video.style.display = 'block';
+    sendBtn.disabled = true;
+    sendBtn.style.display = 'none';
+    takeBtn.textContent = 'Tomar foto';
+    takeBtn.classList.remove('cancel');
+    mode = 'take';
+    status.textContent = 'Puedes tomar otra foto';
+    status.style.color = '#fff';
+  }
+};
+
+// Enviar foto al servidor
+sendBtn.onclick = async () => {
+  if (!imageBlob) return;
+  status.textContent = 'Enviando...';
+  status.style.color = '#0a84ff';
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Enviando...';
+  const formData = new FormData();
+  formData.append('foto', imageBlob, 'foto.jpg');
+  try {
+    let url = serverUrlInput.value.trim();
+    if (!url) url = '/';
+    if (!url.endsWith('/')) url += '/';
+    const res = await fetch(url, {
+      method: 'POST',
+      body: formData
+    });
+    if (res.ok) {
+      status.textContent = '¡Foto enviada con éxito!';
+      status.style.color = '#0f0';
+      sendBtn.textContent = '¡Enviado!';
+      // Reset UI para tomar otra foto
+      photo.style.display = 'none';
+      video.style.display = 'block';
+      sendBtn.textContent = 'Enviar';
+      sendBtn.style.display = 'none';
+      takeBtn.textContent = 'Tomar foto';
+      takeBtn.classList.remove('cancel');
+      mode = 'take';
+      takeBtn.disabled = false;
+      sendBtn.disabled = true;
+      status.textContent = 'Puedes tomar otra foto';
+      status.style.color = '#fff';
+    } else {
+      status.textContent = 'Error al enviar la foto';
+      status.style.color = 'red';
+      sendBtn.textContent = 'Enviar';
+      sendBtn.disabled = false;
+    }
+  } catch (err) {
+    status.textContent = 'Error de red: ' + err;
+    status.style.color = 'red';
+    sendBtn.textContent = 'Enviar';
+    sendBtn.disabled = false;
+  }
+};
+
+// --- QR SCANNER LOGIC ---
+const scanQRBtn = document.getElementById('scanQR');
+const qrModal = document.getElementById('qrModal');
+const closeQRBtn = document.getElementById('closeQR');
+const qrStatus = document.getElementById('qrStatus');
+let qrScanner = null;
+
+scanQRBtn.onclick = () => {
+  qrModal.style.display = 'flex';
+  qrStatus.textContent = 'Apunta la cámara al QR del servidor';
+  qrScanner = new Html5Qrcode("qr-reader");
+  qrScanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 250 },
+    qrCodeMessage => {
+      serverUrlInput.value = qrCodeMessage;
+      qrStatus.textContent = '¡Servidor detectado!';
+      setTimeout(() => {
+        qrScanner.stop().then(() => {
+          qrModal.style.display = 'none';
+        });
+      }, 800);
+    },
+    errorMsg => {
+      // Solo mostrar errores graves
+      if (errorMsg && errorMsg.length > 20) qrStatus.textContent = errorMsg;
+    }
+  ).catch(err => {
+    qrStatus.textContent = 'Error al iniciar escáner: ' + err;
+  });
+};
+
+closeQRBtn.onclick = () => {
+  if (qrScanner) qrScanner.stop().then(() => {
+    qrModal.style.display = 'none';
+  });
+};
+
+startCamera();
+</script>
+</body>
+</html>
